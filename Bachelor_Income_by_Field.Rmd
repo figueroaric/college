@@ -1,0 +1,226 @@
+---
+title: "Financial Analysis of Field of Studies - Bachelor Degrees in US"
+output:
+  html_document:
+    df_print: kable
+---
+
+##"Financial Analysis of Field of Studies - Bachelor Degrees in US"
+
+Going to College is one of the biggest financial decisions a family or a young adult will have to make. Recently (as of late 2019) the US Department of Education made available the earnings by Field of Study for hundreds of institutions. The tool provided by the US Department of education:
+
+https://collegescorecard.ed.gov/
+
+It is really good, if the student has already decided the field of study or the institutions where he/she would like to apply. Having said this, the tool does not provide  an easy way to compare the financial benefit of one degree versus another; or the financial benefit of choosing one institution versus all others that offer the same degree.
+
+The US department of education , provides the option to download the data sets used in the tool from the following website:
+
+https://collegescorecard.ed.gov/data/
+
+The analsysis uses the data in the file FieldOfStudyData1516_1617_PP.csv; combining it with Institution information to display a financial comparison of programs. The Earning by Field of study data shows the Median Earnings (and Debt) of Students as of 1 year after graduation for the classes 2015_16 anf 2016_17.
+
+The Data has been pre_processed already to show only the records for which Earnings and Tuition information is available. The data has 19,563 records with 14 columns.
+
+
+
+```{r}
+FieldofStudy_Earnings_for_rep = read.csv("C:/Users/figue/Documents/Collegeboard_data/Field_of_Studies_Earn_rep.csv", stringsAsFactors = FALSE)
+dim(FieldofStudy_Earnings_for_rep)
+colnames(FieldofStudy_Earnings_for_rep)
+```
+
+The following is a brief description of the columns.
+
+**INSTNM:** Institution Name.  
+**MAIN:** If reads 1 if it is the main campus for the institution otherwise reads 0.  
+**CIPDESC:** The description of the Field of Study.  
+**STABBR:** State where the Institution is located.  
+**DEBTMEDIAN:** The Median Amount of debt of studends graduating from that institution with that field of study.  
+**MD_EARN_WNE:** Median Earnings of the students of the field of study from the specific institution 1 year after graduation.  
+**ADM_RATE:** Overall Admission rate for the Institution.  
+**SAT_AVG:** SAT Average Score of all Students accepted by the Institution (independently of Field of Study).  
+**Tuition_Average:** Average Tuition paid by students at Institution (independently of Field of Study).  
+**Tuition_more_110K:** Average Tuition paid by students, belonging to families with incomes of more than 110K per year, at Institution (independently of Field of Study).  
+**Debt_payback_YR:** Number of years to pay median debt based on earnings 1 year after graduation (if all earnings were used to pay debt).  
+**Tuit_Avg_4Y_Pyback:** Number of years to payback 4 years of Average Tuition based on earnings 1 year after migration (if all earnings were used to pay debt).  
+**Tuit_Inc_4Y_Pyback:** Number of years to payback 4 years of Tuition (Family Income >110K) based on earnings 1 year after migration (if all earnings were used to pay debt).  
+**Salary_10Y_4Y_Tui:** Potential Total Earnings 10 Years after graduation after paying 4 Years of Average Tuition.  
+
+The last 4 columns are calculated columns, All others come directly from the college scorecard data files.
+
+There are more than 300 Field of Studies for Bachelor Degrees however the most popular (more than 50 institutions offer these) are listed following.
+
+```{r}
+FieldofStudy_Earnings_for_rep_count = aggregate(INSTNM ~ CIPDESC,data= FieldofStudy_Earnings_for_rep, length)
+
+FieldofStudy_Earnings_for_rep_count=FieldofStudy_Earnings_for_rep_count[order(FieldofStudy_Earnings_for_rep_count$INSTNM,decreasing=TRUE),]
+
+FieldofStudy_Earnings_for_rep_count[FieldofStudy_Earnings_for_rep_count$INSTNM>49,]
+
+```
+
+The statistical analysis will be done for these Fields of Study. Histograms will be created based on Salary_10Y_4Y_Tui field. The histograms will be created for the Top 10 and Bottom 10 Fields of Study based on Financial Outcome using the this field.
+
+
+```{r}
+
+FieldofStudy_Earnings_for_rep_avg = aggregate(Salary_10Y_4Y_Tui ~ CIPDESC,data= FieldofStudy_Earnings_for_rep, mean)
+FieldofStudy_Earnings_for_rep_avg=FieldofStudy_Earnings_for_rep_avg[order(FieldofStudy_Earnings_for_rep_avg$Salary_10Y_4Y_Tui,decreasing=TRUE),]
+
+#make sure they are popular
+FieldofStudy_Earnings_for_rep_avg = FieldofStudy_Earnings_for_rep_avg[FieldofStudy_Earnings_for_rep_avg$CIPDESC %in% FieldofStudy_Earnings_for_rep_count[FieldofStudy_Earnings_for_rep_count$INSTNM>49,"CIPDESC"],]
+
+#Mean Earnings all fields of study
+mean(FieldofStudy_Earnings_for_rep_avg$Salary_10Y_4Y_Tui)
+
+#Top 10
+FieldofStudy_Earnings_for_rep_top10 = head(FieldofStudy_Earnings_for_rep_avg,10)
+FieldofStudy_Earnings_for_rep_top10
+
+#Bottom 10
+FieldofStudy_Earnings_for_rep_bottom10 = tail(FieldofStudy_Earnings_for_rep_avg,10)
+FieldofStudy_Earnings_for_rep_bottom10
+```
+
+The average Earnings over 10 years minus tuition is $312,300. The field of study with the highest average potential earning is almost double this amount. The one with the lowest earning power is almost 1/3 of the average accross all Fields of Study.
+
+
+**Histograms for Top 10.**
+
+```{r, fig.width=9, fig.height=11}
+library(ggplot2)
+library(scales)
+
+df_top10 = FieldofStudy_Earnings_for_rep[FieldofStudy_Earnings_for_rep$CIPDESC %in% FieldofStudy_Earnings_for_rep_top10$CIPDESC,]
+# Change line color and fill color
+ggplot(df_top10, aes(x=Salary_10Y_4Y_Tui))+  geom_histogram(color="darkblue", fill="lightblue") + scale_x_continuous(labels=dollar_format()) + facet_wrap(. ~ CIPDESC, ncol = 2)
+```
+
+
+Histograms for Bottom 10.
+
+```{r , fig.width=9, fig.height=11}
+
+df_bottom10 = FieldofStudy_Earnings_for_rep[FieldofStudy_Earnings_for_rep$CIPDESC %in% FieldofStudy_Earnings_for_rep_bottom10$CIPDESC,]
+# Change line color and fill color
+ggplot(df_bottom10, aes(x=Salary_10Y_4Y_Tui))+  geom_histogram(color="darkblue", fill="lightblue") + scale_x_continuous(labels=dollar_format()) + facet_wrap(. ~ CIPDESC, ncol = 2)
+
+```
+
+
+Now find the Field of Studies with the greater variance in outcomes. This means, that there is an important financial difference depending on the institution for these fields of study.
+
+```{r}
+
+FieldofStudy_Earnings_for_rep_sdev = aggregate(Salary_10Y_4Y_Tui ~ CIPDESC,data= FieldofStudy_Earnings_for_rep, sd)
+FieldofStudy_Earnings_for_rep_sdev = FieldofStudy_Earnings_for_rep_sdev[order(FieldofStudy_Earnings_for_rep_sdev$Salary_10Y_4Y_Tui,decreasing=TRUE),]
+
+#make sure they are popular
+FieldofStudy_Earnings_for_rep_sdev = FieldofStudy_Earnings_for_rep_sdev[FieldofStudy_Earnings_for_rep_sdev$CIPDESC %in% FieldofStudy_Earnings_for_rep_count[FieldofStudy_Earnings_for_rep_count$INSTNM>49,"CIPDESC"],]
+
+
+
+#Top 10
+FieldofStudy_Earnings_for_rep_top10_sdev = head(FieldofStudy_Earnings_for_rep_sdev,10)
+FieldofStudy_Earnings_for_rep_top10_sdev
+
+```
+
+For the field of studies in the previous table , it would be a good idea to check the Institutions that offer the best financial outcomes. The following are the histograms.
+
+
+
+```{r , fig.width=9, fig.height=11}
+
+df_sdev10 = FieldofStudy_Earnings_for_rep[FieldofStudy_Earnings_for_rep$CIPDESC %in% FieldofStudy_Earnings_for_rep_top10_sdev$CIPDESC,]
+# Change line color and fill color
+ggplot(df_sdev10, aes(x=Salary_10Y_4Y_Tui))+  geom_histogram(color="darkblue", fill="lightblue") + scale_x_continuous(labels=dollar_format()) + facet_wrap(. ~ CIPDESC, ncol = 2)
+
+```
+
+The following box plots focus on the 10 Field of Studies with the highest variance. It provides a view into the outliers.
+
+
+
+```{r, fig.width=11, fig.height=8}
+
+library(dplyr)
+library(ggplot2)
+
+
+#function to determine outliers
+#Increase IQR from 1.5 times to 2.0 times to avoid many outliers
+is_outlier <- function(x) {
+  return(x < quantile(x, 0.25) - 2.0 * IQR(x) | x > quantile(x, 0.75) + 2.0 * IQR(x))
+}
+
+#dat <- df_sdev10[,c("CIPDESC","INSTNM","Salary_10Y_4Y_Tui")] %>% group_by(CIPDESC) %>% mutate(is_outlier=ifelse(is_outlier(Salary_10Y_4Y_Tui),INSTNM,as.numeric(NA)))
+
+#dat$INSTNM[which(is.na(dat$is_outlier))] <- as.numeric(NA)
+
+#This ggplot view overlaps the names of many institutions
+#ggplot(dat, aes(y=Salary_10Y_4Y_Tui, x=factor(CIPDESC))) + geom_boxplot() + geom_text(aes(label=INSTNM),na.rm=TRUE,nudge_y=0.5, cex=2, angle=45) + theme(axis.text.x =element_text(angle=45, hjust =1) )
+
+
+
+```
+
+Try yo use plotly to make it more readable
+
+```{r}
+
+library(plotly)
+
+p <-  ggplot(df_sdev10, aes(y=Salary_10Y_4Y_Tui, x=factor(CIPDESC))) + geom_boxplot()  + theme(axis.text.x =element_text(angle=45, hjust =1) )
+
+
+#store description as factor
+temp = as.factor(df_sdev10$CIPDESC)
+df_sdev10$factorCIPDESC_Salary = paste(as.numeric(temp),df_sdev10$Salary_10Y_4Y_Tui,sep="_")
+
+#create plotly object
+
+ply = ggplotly(p,  width = 1280, height = 960)
+
+
+#maybe I can map ti with ply$x$data[[1]]$x and ply$x$data[[1]]$y
+datafrom_ply = as.data.frame(cbind(ply$x$data[[1]]$x,ply$x$data[[1]]$y))
+datafrom_ply$formatch = paste(datafrom_ply[,1],datafrom_ply[,2],sep="_")
+#have to merge to align based on factor and dollar amount
+#Add sequence to return to right order
+datafrom_ply$seq = seq(1,dim(datafrom_ply)[1])
+
+# there is duplicated data
+#datafrom_ply[duplicated(datafrom_ply$formatch),]
+#have to remove these duplicates from df_sdev10
+#to avoid merging issues
+
+df_sdev10_unique= df_sdev10[!duplicated(df_sdev10$factorCIPDESC_Salary),]
+
+#merge changes the orger
+datafrom_ply = merge(datafrom_ply, df_sdev10_unique[,c("factorCIPDESC_Salary","INSTNM","Salary_10Y_4Y_Tui","CIPDESC")], all.x=TRUE, all.y=FALSE, by.x="formatch", by.y="factorCIPDESC_Salary")
+#reorder using the field seq
+datafrom_ply=datafrom_ply[order(datafrom_ply$seq),]
+#Now INSTNM should be ordered correctly
+#Add field with dollar amoung and institution
+datafrom_ply$INSTNM_Net_10 = paste(datafrom_ply$INSTNM,": $",datafrom_ply$Salary_10Y_4Y_Tui,sep="")
+
+#Assign Labels to display
+ply$x$data[[1]]$text = datafrom_ply$INSTNM_Net_10
+ply$x$data[[1]]$hoverinfo <- "text"
+
+
+ply
+
+
+
+```
+
+
+
+This is the end of the basic statistic analsysis. Based on this please check the data tables available to search for a specific field of study and the best institutions (from a a financial perspective) that offers it.
+
+There is a more advanced statistical analysis that review financial outcome by other variables like location and words included in the Field of Study.
+
+ 
+ 
