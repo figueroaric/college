@@ -1,0 +1,408 @@
+---
+title: "Financial Analysis of Field of Studies - Bachelor Degrees in US"
+output:
+  html_document:
+    df_print: paged
+  html_notebook:
+    df_print: kable
+---
+
+##"Financial Analysis of Field of Studies - Bachelor Degrees in US"
+
+
+This is a complement to the basic statistical analysis that was done based on the data downloaded from the US Department of Education collegescorecard web site.
+
+The US department of education , provides the option to download the data sets used in the tool from the following website:
+
+https://collegescorecard.ed.gov/data/
+
+The analsysis uses the data in the file FieldOfStudyData1516_1617_PP.csv; combining it with Institution information to display a financial comparison of programs. The Earning by Field of study data shows the Median Earnings (and Debt) of Students as of 1 year after graduation for the classes 2015_16 anf 2016_17.
+
+The Data has been pre-processed to show only the records for which Earnings and Tuition information is available. The data has 19,563 records with 14 columns. 
+
+```{r}
+FieldofStudy_Earnings_for_rep = read.csv("C:/Users/figue/Documents/Collegeboard_data/Field_of_Studies_Earn_rep.csv", stringsAsFactors = FALSE)
+dim(FieldofStudy_Earnings_for_rep)
+colnames(FieldofStudy_Earnings_for_rep)
+```
+
+In this analysis, we will review how the words contained in a field of study affect the potential earnings. I will also use SAT scores and Admission rates as predictors of future earnings. This data will be used to create linear regression models that will be discussed later in this document.
+
+The reader might be thinking whether the State where the Institution is located might have something to do with the financial outcome. Prior to moving forward , let's create a simple linear regression model to test this hypothesis.
+
+```{r}
+
+
+lm.Ear.cost = lm(Salary_10Y_4Y_Tui ~ STABBR + ADM_RATE +SAT_AVG , data=FieldofStudy_Earnings_for_rep)
+
+summary(lm.Ear.cost)
+```
+
+First of all you can tell that the Linear regression model is not very good. Not too much is explained by the variables chosen, and the only State/Terrirory that is statistical significant is Puerto Rico (STABBRPR). By themselves, the SAT average and the Admission rate are statistical significant but they do not predict a lot (R-squared: 0.03911). We are missing the Field of Study information, this is what matters the most.
+
+Since Puerto Rico is relevant , I will add a variable to keep track of this Territory and I will avoid using the feature STABBR which contains the values for all states.
+
+```{r}
+
+FieldofStudy_Earnings_for_rep$Puerto_Rico = ifelse(FieldofStudy_Earnings_for_rep$STABBR=="PR",1,0)
+
+
+
+```
+
+
+Let's continue by splitting the description of the fields of study into individual words. The tm package in r is very helpful to complete this. There are many different words in the descriptions of the fields of study, it is important to keep the ones that repeat the most , those are the most relevant.
+
+```{r}
+library(tm)
+#CIPDESC is the description . I would like to analyze
+
+docs = FieldofStudy_Earnings_for_rep$CIPDESC
+
+#Vector Source can create a Corpuse from the vector
+
+Field.Corpus = VCorpus(VectorSource(docs))
+
+#Transformations to normalize data, remove common words and punctuation
+
+#Conver to lower case
+
+Field.Corpus = tm_map(Field.Corpus, content_transformer(tolower))
+
+#there are still dots
+#remove stop words
+
+Field.Corpus = tm_map(Field.Corpus, removeWords, stopwords("english"))
+
+#punctuation
+
+Field.Corpus = tm_map(Field.Corpus, removePunctuation)
+
+#Document term matrix
+
+Field.matrix = DocumentTermMatrix(Field.Corpus)
+
+# Convert to normal matrix in r
+r.field.matrix = as.matrix(Field.matrix)
+
+#Add the description names to 
+
+rownames(r.field.matrix) = FieldofStudy_Earnings_for_rep$CIPDESC
+
+#find most commong words
+count_of_word = apply(r.field.matrix,2,sum)
+
+count_of_word = count_of_word[order(count_of_word,decreasing=TRUE)]
+
+#the most common is general 3,456 times
+
+#there a total of 380 words. How many repeat more than 200 times in degreese
+
+sum(count_of_word>200)
+
+# 72. Keep those 72
+
+
+count_of_word  = count_of_word [count_of_word>200]
+
+#now just keep those columns in the r.field.matrix
+
+r.field.matrix.red = r.field.matrix[,names(count_of_word)]
+
+r.field.matrix.red = cbind(r.field.matrix.red, FieldofStudy_Earnings_for_rep[,c("Puerto_Rico","ADM_RATE","SAT_AVG","Salary_10Y_4Y_Tui")])
+#change state to Factor
+r.field.matrix.red$Puerto_Rico = as.factor(r.field.matrix.red$Puerto_Rico)
+
+colnames(r.field.matrix.red)
+
+```
+
+
+Several of these words are part of a single Field of Study description so they will be perfectly correlated. This is not benefitial for a linear regression (and in general for any machine learning algorithm). The following code removes the fields that are perfectly correlated.
+
+```{r}
+
+# Using  Apply I can find the counts that are identical across words. By removing duplicates a eliminate perfect correlation
+# and remove the columns with duplicated numbers r keep the ones that are unique
+colnames(r.field.matrix.red[,c(1:72)])[!duplicated(apply(r.field.matrix.red[,c(1:72)],2,sum))]
+
+r.field.matrix.red_nocor = r.field.matrix.red[,c(colnames(r.field.matrix.red[,c(1:72)])[!duplicated(apply(r.field.matrix.red[,c(1:72)],2,sum))],"Puerto_Rico","ADM_RATE","SAT_AVG","Salary_10Y_4Y_Tui")]
+
+#Do a linear regression
+
+lm.Ear.cost4 = lm(Salary_10Y_4Y_Tui ~ . , data=r.field.matrix.red_nocor)
+summary(lm.Ear.cost4)
+#areas seem to be highly correlated.Yields singularities Remove.
+
+
+```
+
+The word areas seems to be correlated to other variables. There are other words that are highly correlated to ohters that should be removed. In the next lines of code, I check for the correlated variables and remove a few of them manually. In addition to this, I will remove words that are not statistically significant. After this is done a new linear regression is created.
+
+```{r}
+
+#check correlated variables
+#this returns the pairs.
+#I need to keep only the top
+Corr.m.9 = which(cor(r.field.matrix.red[,1:72])>.9 , arr.ind=TRUE)
+#remove diagonal
+
+Corr.m.9=Corr.m.9[!(Corr.m.9[,"row"] == Corr.m.9[,"col"]),]
+
+#bind names that are too correlated
+
+corr_pairs = cbind(rownames(cor(r.field.matrix.red[,1:72]))[Corr.m.9[,"row"]],colnames(cor(r.field.matrix.red[,1:72]))[Corr.m.9[,"col"]])
+
+# Choose which word is more relevant or better describes a degree. The other words will have to be removed
+#start with nursing
+#for example this is highly correlated to clinical and registerd
+#those should be removed
+words_remove = corr_pairs[corr_pairs[,1]=="nursing",2]
+#for keeping track remove from corr_pairs
+
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+#now look fo teacher. Development, professional, specific
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="teacher",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#justice
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="justice",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#methods
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="methods",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#literature
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="literature",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#educationfitness
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="educationfitness",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#humanities
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="humanities",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#government
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="government",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#fine
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="fine",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#finance
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="finance",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#subject
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="subject",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#electronics
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="electronics",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#medical
+words_remove = c(words_remove,corr_pairs[corr_pairs[,1]=="medical",2])
+#update pairs
+corr_pairs=corr_pairs[!(corr_pairs[,1] %in% words_remove),]
+
+#remove all fields that correspond to words that are highly correlated
+
+r.field.matrix.red_nocor = r.field.matrix.red_nocor[,!(colnames(r.field.matrix.red_nocor) %in% words_remove)]
+
+
+lm.Ear.cost4 = lm(Salary_10Y_4Y_Tui ~ . , data=r.field.matrix.red_nocor)
+
+#I will remove coefficients that are not significant more than .05
+
+lm.Ear.cost4$coefficients[2]
+
+# retrieve the names of the variables that are significan
+names.to.keep = names(summary(lm.Ear.cost4)[["coefficients"]][,"Pr(>|t|)"])[summary(lm.Ear.cost4)[["coefficients"]][,"Pr(>|t|)"]<.05] 
+
+#except for intercept these are names in r.field.matrix.red_nocor. Remember that we also have to keep Salary_10Y_4Y_Tui
+#For some reason Puerto_Rico1 is presented as a coefficient and not Puerto Rico
+r.field.matrix.red_nocor.sig = r.field.matrix.red_nocor[,c(colnames(r.field.matrix.red_nocor)[colnames(r.field.matrix.red_nocor) %in% names.to.keep], "Puerto_Rico","Salary_10Y_4Y_Tui")]
+
+lm.Ear.cost5 = lm(Salary_10Y_4Y_Tui ~ . , data=r.field.matrix.red_nocor.sig)
+
+summary(lm.Ear.cost5)
+
+```
+
+In this last linear regression all of the features are statistically significant.These features explain close to 70% of the variance in "Net Operating Income" after 10 years (R - squared 0.6925).
+A few things that can be pointed out are that students graduating in Puerto Rico should expect to earn $189,701 less over 10 years after graduation (if they keep the same 1st year salary) compared to students graduating from Institutions in one of the 50 States in the US. 
+
+SAT scores and admission rates matter in terms of earnings , probably because they are factors associated to prestigious Institutions. An extra point in the SAT AVG Score of the Universty translates into US106 in additional earnings over 10 years. To put it in perspective, the student graduating from an institution with an Average SAT score of 1,500 versus an Institution with an Average SAT Score of 1,100 will earn on average about US40,000 more over 10 years . The Admission rate have a similar impact but in the opposite direction, for every drop of one percentage point (0.01) of the admission rate for the institution the expectation would be to earn about US$306 more over 10 years.
+
+Next, I show the density functions for SAT Scores and Admission Rates.
+
+```{r}
+#For the calculation of the density function, I will start with the original data.
+#Since the SAT score and admission rate is by Institution then this information repeats for the Fields of Studies offered at the 
+#College/University. It is required to remove duplicates
+
+#create Dataframe with required fields
+SAT_ADM_INST = FieldofStudy_Earnings_for_rep[,c("INSTNM","ADM_RATE","SAT_AVG")]
+#Eliminate duplicates
+SAT_ADM_INST= SAT_ADM_INST[!(duplicated(SAT_ADM_INST)),]
+
+# Remove NAs
+SAT_ADM_INST=na.omit(SAT_ADM_INST)
+
+library(ggplot2)
+#Create density chart for SAT first
+
+dens <- density(SAT_ADM_INST$SAT_AVG)
+df <- data.frame(x=dens$x, y=dens$y)
+
+#want to find what is the percentile corresponding to an average score of 1500
+percentile=ecdf(SAT_ADM_INST$SAT_AVG)
+prob_1500 = round(percentile(1500),4)
+prob_1500
+
+probs <- c(0.05, 0.25, 0.5, 0.75, 0.95)
+quantiles <- quantile(SAT_ADM_INST$SAT_AVG, prob=probs)
+df$quant <- factor(findInterval(df$x,quantiles))
+
+quantile_SAT = paste(round(quantiles,0))
+label_quants = paste(names(quantiles),quantile_SAT,sep="\n")
+
+ggplot(df, aes(x,y)) + geom_line() + geom_ribbon(aes(ymin=0, ymax=y, fill=quant)) + scale_x_continuous(breaks=quantiles, labels = label_quants ) + scale_fill_brewer(guide="none") + ggtitle("SAT Scores Density") + xlab("% Percentile \n SAT Score") + ylab("Density / Proportion of Institutions")
+
+#Create density for admission rate
+
+
+dens <- density(SAT_ADM_INST$ADM_RATE)
+df <- data.frame(x=dens$x, y=dens$y)
+probs <- c(0.05, 0.25, 0.5, 0.75, 0.95)
+quantiles <- quantile(SAT_ADM_INST$ADM_RATE, prob=probs)
+df$quant <- factor(findInterval(df$x,quantiles))
+
+quantile_ADM = paste(round(quantiles,2))
+label_quants = paste(names(quantiles),quantile_ADM,sep="\n")
+
+ggplot(df, aes(x,y)) + geom_line() + geom_ribbon(aes(ymin=0, ymax=y, fill=quant)) + scale_x_continuous(breaks=quantiles, labels = label_quants ) + scale_fill_brewer(guide="none") + ggtitle("Admission Rate Density") + xlab("% Percentile \n Admission Rate") + ylab("Density / Proportion of Institutions")
+
+```
+
+The density chart for the SAT Scores shows that an SAT Average score of 1123 is the median for all Institutions in the US. In short, with this score about 50% of the instituation in the US would accept the student. Only 5 % of the institutions in the US report an Average SAT score of 1,398 or more. I did a simple calculation for the equivalent percentile for an SAT Score of 1500, it is very close to 99%. In short,only 1% of the institutions in the US report an Average SAT score of 1500 or more (the maximum possible SAT score is 1600).
+
+The density for the admission rate shows a long tail to the left of the chart. The 5th percentile is 28%, more surprising is that the institutions at the 25th percentile accept 54% of the applicants. There are several factors taken into consideration during the admission process but it looks like students have a good chance to get accepted into the institution of their choice probably excluding the ones with very high SAT score requirements.
+
+The next code will create divergence charts by using the words that were taken into consideration as factors for the Linear regreassion that was calculated earlier.
+
+
+```{r , fig.width=11, fig.height=9}
+
+library(scales)
+#This contains all of the estimated coefficients
+summary(lm.Ear.cost5)[["coefficients"]][,"Estimate"]
+#will keep only the featuers for words in Fiedls of Study
+
+Word_Fields = summary(lm.Ear.cost5)[["coefficients"]][,"Estimate"][2:48]
+# Negative or Positive contribution
+Contribution = ifelse(Word_Fields>0, "Positive", "Negative")
+#bind 
+Word_Fields=as.data.frame(cbind(Word_Fields,Contribution), stringsAsFactors=FALSE)
+Word_Fields$Word = rownames(Word_Fields)
+
+#update column Names
+
+colnames(Word_Fields)=c("US_Dollars","Contribution_Direction","Word")
+
+Word_Fields$US_Dollars = as.numeric(Word_Fields$US_Dollars)
+#round US dollars
+
+#have to correct the sorting.....
+Word_Fields$US_Dollars = round(Word_Fields$US_Dollars,0)
+#change words and Contribution to factors
+Word_Fields$Word = as.factor(Word_Fields$Word)
+Word_Fields$Contribution_Direction = as.factor(Word_Fields$Contribution_Direction)
+#sort by dollars
+
+Word_Fields=Word_Fields[order(Word_Fields$US_Dollars,decreasing = FALSE),]
+#this is necenssary to conver Word to factor and for it to be sorted correctly
+
+Word_Fields$Word <- factor(Word_Fields$Word, levels = Word_Fields$Word)
+
+
+Word_Fields$Contribution_Direction <- factor(Word_Fields$Contribution_Direction, levels(Word_Fields$Contribution_Direction)[c(2,1)])
+
+p = ggplot(Word_Fields, aes(x=Word, y=US_Dollars, label=Word)) +
+   geom_bar(stat='identity', aes(fill=Contribution_Direction), width=.5) +
+   scale_fill_manual(name="Contribution Direction",
+                    labels = c("Positive", "Negative"),
+                    values = c("Positive"="#00ba38", "Negative"="red")) +  scale_y_continuous(labels=dollar_format()) +
+   labs(subtitle="Postivie or Negative Contribution by Word in Bachelor Degree Field of Study'",
+         title= "Diverging Bar Plot - US Dollar Amounts") +
+   coord_flip()
+
+p
+
+
+ 
+```
+
+The previous chart provides a quick way to identify the words in the Field of Studies that yield a better return over 10 years. As an example, combining engineering with computer or electronics predicts a better financial outcome by a large margin. On the negative side of the chart, there are a few surprises like  Biology. It is likely that students in this type of career delay their higher incomes because they pursue Medicine or Veterinary programs after their undergraduate degrees. As for the word government that seems to be the one that affects the results more negatively, this is combined with political science in the name of the field of study so the net result is around 0.
+
+
+Eventhough , this is probably a good guideline to make a decision; this should be combined with information about the range of incomes (variance) for a particular field of study. If the variance is large, then it becomes more important to research the best schools for that program to maximize the potential income after graduation.
+
+```{r}
+library(plotly)
+#I will focus on Finance and Financial Management Services. and Economics
+Eco_Business = FieldofStudy_Earnings_for_rep[FieldofStudy_Earnings_for_rep$CIPDESC=="Finance and Financial Management Services." | FieldofStudy_Earnings_for_rep$CIPDESC=="Economics.",c("CIPDESC","ADM_RATE","SAT_AVG","Salary_10Y_4Y_Tui")]
+
+# replace Finance and Finacial Management... with Financeand Economics. with Economics
+
+Eco_Business$CIPDESC = ifelse(Eco_Business$CIPDESC=="Economics.","Economics","Finance")
+
+#change to factor
+Eco_Business$CIPDESC = as.factor(Eco_Business$CIPDESC)
+#omit any NAs
+
+Eco_Business=na.omit(Eco_Business)
+
+fig <- plot_ly(Eco_Business, x = ~ADM_RATE, y = ~SAT_AVG, z = ~Salary_10Y_4Y_Tui, color = ~CIPDESC, colors = c('#BF382A', '#0C4B8E'))
+fig <- fig %>% add_markers()
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'Admission Rate'),
+                     yaxis = list(title = 'SAT Avg Score'),
+                     zaxis = list(title = 'Net Income over 10Y')))
+
+fig
+
+
+```
+
+The Scatter Plot shows how there is more variance for a degree in Economics (In red). A student by choosing the right Institution(s)  is likely to maximize the level of income after graduation. As for the degree in Finance, eventhough there is an outlier, the expected income for the majority of the programs is clustered. In short there is more value in looking for good institutions offering Economics majors than Finance majors. For Finance Majors there are only 3 Instutions with top earnings after graduation as for Economics there are about ~20.
+
+#Conclusions
+
+The following are takeaways from this and the previous statistical analysis.
+
+1. The most significant predictor of earnings after graduating from college is the Field of Study chosen and not the Institution from which the student graduates.
+
+2. Puerto Rico is the only territory / State, where the graduates should expect to earn less after graduation, statistically speaking. To address this situation the students in this territory should plan to move to one of the 50 states, after graduation, to increase their earning potential substantially.
+
+3. SAT Scores and Instituion Admission rates predict less than 4% of the variance of the earnings.
+
+4. Once a Field fo Study is chosen, it makes sense to look for Specific Institutions when there is a high degree of varaince in the expected Operating Income. For example studients pursuing careers in  Computer Engineering, Computer Science, Economics and Nursing should look into the top institutions in terms of potential operating income.
+
+5. For degress that yield lowest levels of earnings after graduation, it is of the most importance for the students to attend institutions with the lowest possible costs. Student Loans should be avoided as much as possible when pursuing these degrees.
+
